@@ -1,0 +1,442 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>NeuroScan AI — Upload MRI Scan</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="{% static 'layout/styles/layout.css' %}" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@200;300;400;600;700&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --azure: #0af0ff;
+            --azure-dim: #05b8c8;
+            --azure-glow: rgba(10, 240, 255, 0.15);
+            --green: #00ff88;
+            --deep: #020810;
+            --glass: rgba(5, 18, 38, 0.72);
+            --border-subtle: rgba(10, 240, 255, 0.1);
+            --border-mid: rgba(10, 240, 255, 0.22);
+            --text-dim: rgba(180, 220, 255, 0.38);
+        }
+
+        html, body { height: 100%; overflow: hidden; background: var(--deep); font-family: 'Exo 2', sans-serif; cursor: none; }
+
+        .cursor { position: fixed; width: 8px; height: 8px; background: var(--azure); border-radius: 50%; pointer-events: none; z-index: 9999; transform: translate(-50%,-50%); box-shadow: 0 0 12px var(--azure); }
+        .cursor-ring { position: fixed; width: 30px; height: 30px; border: 1px solid rgba(10,240,255,0.45); border-radius: 50%; pointer-events: none; z-index: 9998; transform: translate(-50%,-50%); transition: width 0.2s, height 0.2s; }
+
+        #neural-canvas { position: fixed; inset: 0; z-index: 0; opacity: 0.5; }
+
+        .bg {
+            position: fixed; inset: 0;
+            background:
+                radial-gradient(ellipse 70% 80% at 15% 50%, rgba(0,20,50,0.85) 0%, transparent 55%),
+                radial-gradient(ellipse 50% 60% at 85% 20%, rgba(0,5,20,0.8) 0%, transparent 60%),
+                url("{% static 'images/02.jpg' %}") center/cover no-repeat;
+        }
+        .bg::after { content: ''; position: absolute; inset: 0; background: rgba(2,8,16,0.72); }
+
+        .scanlines {
+            position: fixed; inset: 0; z-index: 1; pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(10,240,255,0.007) 3px, rgba(10,240,255,0.007) 4px);
+        }
+
+        /* ECG bottom */
+        .ecg-wrap { position: fixed; bottom: 0; left: 0; right: 0; height: 55px; z-index: 2; overflow: hidden; opacity: 0.3; }
+        .ecg-svg { width: 200%; height: 100%; animation: ecgScroll 4s linear infinite; }
+        @keyframes ecgScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+        /* HUD */
+        .hud { position: fixed; z-index: 10; font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--text-dim); letter-spacing: 1px; line-height: 1.8; }
+        .hud-tl { top: 22px; left: 26px; }
+        .hud-tr { top: 22px; right: 26px; text-align: right; }
+        .hud .accent { color: var(--azure); }
+
+        .bracket { position: fixed; z-index: 10; width: 26px; height: 26px; border-color: rgba(10,240,255,0.3); border-style: solid; }
+        .b-tl { top: 14px; left: 14px; border-width: 1px 0 0 1px; }
+        .b-tr { top: 14px; right: 14px; border-width: 1px 1px 0 0; }
+        .b-bl { bottom: 55px; left: 14px; border-width: 0 0 1px 1px; }
+        .b-br { bottom: 55px; right: 14px; border-width: 0 1px 1px 0; }
+
+        /* Layout */
+        .page {
+            position: fixed; inset: 0; z-index: 5;
+            display: flex; align-items: center; justify-content: center;
+            padding: 80px 40px 70px;
+            gap: 60px;
+        }
+
+        /* Info panel */
+        .info-panel {
+            flex: 0 0 280px;
+            animation: fadeIn 0.9s cubic-bezier(0.16,1,0.3,1) both;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+
+        .step-label {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px; letter-spacing: 4px;
+            color: var(--azure); margin-bottom: 16px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .step-label::before { content: ''; width: 20px; height: 1px; background: var(--azure); display: inline-block; }
+
+        .info-title {
+            font-family: 'Michroma', sans-serif;
+            font-size: 28px; line-height: 1.2;
+            color: #fff; margin-bottom: 16px;
+        }
+        .info-title em {
+            font-style: normal;
+            background: linear-gradient(90deg, var(--azure), #5fd0ff);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+
+        .info-desc {
+            font-size: 13px; color: var(--text-dim); line-height: 1.9;
+            margin-bottom: 32px; letter-spacing: 0.3px;
+        }
+
+        /* Process steps */
+        .steps { display: flex; flex-direction: column; gap: 12px; }
+        .step {
+            display: flex; align-items: flex-start; gap: 14px;
+            padding: 12px 16px;
+            border: 1px solid var(--border-subtle);
+            border-radius: 3px;
+            background: rgba(10,240,255,0.02);
+            transition: all 0.3s;
+        }
+        .step:hover { border-color: var(--border-mid); background: rgba(10,240,255,0.04); }
+        .step-num {
+            font-family: 'Michroma', sans-serif;
+            font-size: 20px; color: rgba(10,240,255,0.2);
+            line-height: 1; min-width: 24px;
+        }
+        .step-info .s-title {
+            font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8);
+            letter-spacing: 0.5px; margin-bottom: 2px;
+        }
+        .step-info .s-desc { font-size: 11px; color: var(--text-dim); }
+
+        /* Upload card */
+        .upload-card {
+            flex: 0 0 420px;
+            background: var(--glass);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 40px 36px;
+            position: relative;
+            backdrop-filter: blur(24px) saturate(160%);
+            box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 80px rgba(10,240,255,0.04), inset 0 1px 0 rgba(10,240,255,0.1);
+            animation: cardUp 0.9s cubic-bezier(0.16,1,0.3,1) 0.15s both;
+        }
+        @keyframes cardUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        .upload-card::before {
+            content: ''; position: absolute; top: 0; left: 15%; right: 15%;
+            height: 1px; background: linear-gradient(90deg, transparent, var(--azure), transparent);
+            box-shadow: 0 0 20px var(--azure);
+        }
+
+        .card-sweep { position: absolute; inset: 0; border-radius: 4px; overflow: hidden; pointer-events: none; }
+        .card-sweep::after {
+            content: ''; position: absolute; top: -2px; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(10,240,255,0.5), transparent);
+            animation: sweep 2s ease 0.6s both;
+        }
+        @keyframes sweep { from { top: -2px; opacity: 1; } to { top: 100%; opacity: 0; } }
+
+        .card-header { margin-bottom: 28px; }
+        .card-title {
+            font-family: 'Michroma', sans-serif;
+            font-size: 18px; color: #fff; margin-bottom: 4px;
+        }
+        .card-sub {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px; letter-spacing: 3px; color: var(--text-dim);
+        }
+
+        /* Drop zone */
+        .drop-zone {
+            position: relative;
+            border: 1px dashed rgba(10,240,255,0.22);
+            border-radius: 3px;
+            padding: 36px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            background: rgba(10,240,255,0.015);
+            overflow: hidden;
+        }
+        .drop-zone::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: radial-gradient(ellipse at center, rgba(10,240,255,0.05) 0%, transparent 70%);
+            opacity: 0; transition: opacity 0.3s;
+        }
+        .drop-zone:hover::before, .drop-zone.active::before { opacity: 1; }
+        .drop-zone:hover, .drop-zone.active {
+            border-color: rgba(10,240,255,0.5);
+            box-shadow: 0 0 40px rgba(10,240,255,0.08), inset 0 0 40px rgba(10,240,255,0.03);
+        }
+
+        .drop-zone input[type="file"] {
+            position: absolute; inset: 0; opacity: 0; cursor: none; width: 100%; height: 100%;
+        }
+
+        /* Animated brain scan graphic */
+        .scan-graphic {
+            position: relative; width: 80px; height: 80px; margin: 0 auto 16px;
+        }
+        .scan-graphic .sg-ring {
+            position: absolute; border-radius: 50%; border: 1px solid;
+            top: 50%; left: 50%; transform: translate(-50%,-50%);
+            animation: sgRotate linear infinite;
+        }
+        .sg-ring-1 { width: 80px; height: 80px; border-color: rgba(10,240,255,0.12); animation-duration: 8s; }
+        .sg-ring-2 { width: 58px; height: 58px; border-color: rgba(10,240,255,0.2); animation-duration: 5s; animation-direction: reverse; }
+        .sg-ring-3 { width: 36px; height: 36px; border-color: rgba(10,240,255,0.3); animation-duration: 3s; }
+        @keyframes sgRotate { to { transform: translate(-50%,-50%) rotate(360deg); } }
+        .sg-ring::before { content: ''; position: absolute; width: 5px; height: 5px; background: var(--azure); border-radius: 50%; top: -2.5px; left: 50%; transform: translateX(-50%); box-shadow: 0 0 8px var(--azure); }
+        .scan-icon {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+            font-size: 20px; z-index: 2;
+        }
+
+        .drop-title {
+            font-family: 'Michroma', sans-serif;
+            font-size: 13px; color: rgba(255,255,255,0.8);
+            margin-bottom: 6px; letter-spacing: 1px;
+        }
+        .drop-sub {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px; color: var(--text-dim); letter-spacing: 1px;
+        }
+        .drop-sub span { color: var(--azure); }
+
+        /* File name display */
+        .filename-display {
+            display: none;
+            align-items: center; gap: 10px;
+            padding: 10px 14px;
+            background: rgba(10,240,255,0.06);
+            border: 1px solid var(--border-mid);
+            border-radius: 3px;
+            margin-bottom: 16px;
+        }
+        .filename-display.show { display: flex; }
+        .filename-icon { color: var(--azure); font-size: 16px; }
+        .filename-text { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: rgba(255,255,255,0.7); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .filename-ok { color: var(--green); font-size: 14px; }
+
+        /* Model selector */
+        .selector-wrap { margin-bottom: 24px; }
+        .sel-label {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px; letter-spacing: 3px; color: var(--azure);
+            text-transform: uppercase; margin-bottom: 8px; display: block;
+        }
+        .select-inner { position: relative; }
+        select {
+            width: 100%; padding: 12px 40px 12px 16px;
+            background: rgba(10,240,255,0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: 3px;
+            font-family: 'Exo 2', sans-serif; font-size: 14px;
+            color: rgba(255,255,255,0.85);
+            appearance: none; cursor: none; transition: all 0.25s;
+        }
+        select:focus { outline: none; border-color: rgba(10,240,255,0.4); box-shadow: 0 0 20px rgba(10,240,255,0.08); }
+        select option { background: #030f1e; }
+        .select-arrow { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--azure); font-size: 11px; pointer-events: none; }
+
+        /* Submit */
+        .submit-btn {
+            width: 100%; padding: 15px;
+            background: transparent;
+            border: 1px solid rgba(10,240,255,0.35);
+            border-radius: 3px;
+            font-family: 'Michroma', sans-serif;
+            font-size: 12px; letter-spacing: 4px;
+            color: var(--azure); cursor: none;
+            position: relative; overflow: hidden; transition: all 0.35s;
+        }
+        .submit-btn::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(10,240,255,0.18), rgba(10,240,255,0.06));
+            transform: scaleX(0); transform-origin: left;
+            transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+        }
+        .submit-btn:hover::before { transform: scaleX(1); }
+        .submit-btn:hover { border-color: var(--azure); box-shadow: 0 0 40px rgba(10,240,255,0.2); letter-spacing: 6px; }
+        .btn-inner { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .btn-icon { animation: btnSpin 4s linear infinite; display: inline-block; }
+        @keyframes btnSpin { to { transform: rotate(360deg); } }
+
+        .bottom-status {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 18px;
+            font-family: 'Share Tech Mono', monospace; font-size: 9px; color: var(--text-dim); letter-spacing: 1px;
+        }
+        .status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 3s ease-in-out infinite; display: inline-block; margin-right: 5px; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+    </style>
+</head>
+<body>
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+<div class="bg"></div>
+<div class="scanlines"></div>
+<canvas id="neural-canvas"></canvas>
+
+<div class="ecg-wrap">
+    <svg class="ecg-svg" viewBox="0 0 1200 55" preserveAspectRatio="none" fill="none">
+        <path d="M0,27 L80,27 L100,27 L110,4 L120,52 L130,4 L140,27 L160,27 L240,27 L260,27 L270,4 L280,52 L290,4 L300,27 L320,27 L400,27 L420,27 L430,4 L440,52 L450,4 L460,27 L480,27 L560,27 L580,27 L590,4 L600,52 L610,4 L620,27 L640,27 L720,27 L740,27 L750,4 L760,52 L770,4 L780,27 L800,27 L880,27 L900,27 L910,4 L920,52 L930,4 L940,27 L960,27 L1040,27 L1060,27 L1070,4 L1080,52 L1090,4 L1100,27 L1200,27"
+              stroke="rgba(10,240,255,0.5)" stroke-width="1.5"/>
+    </svg>
+</div>
+
+<div class="hud hud-tl">
+    <div><span class="accent">NEUROSCAN</span> · UPLOAD MODULE</div>
+    <div>SESSION <span class="accent">ACTIVE</span></div>
+    <div id="clock">--:--:--</div>
+</div>
+<div class="hud hud-tr">
+    <div>MAX FILE <span class="accent">50MB</span></div>
+    <div>FORMAT <span class="accent">DICOM · PNG · JPG</span></div>
+</div>
+
+<div class="bracket b-tl"></div>
+<div class="bracket b-tr"></div>
+<div class="bracket b-bl"></div>
+<div class="bracket b-br"></div>
+
+<div class="page">
+
+    <!-- Info panel -->
+    <div class="info-panel">
+        <div class="step-label">STEP 01 OF 02</div>
+        <h2 class="info-title">Upload<br><em>MRI Scan</em></h2>
+        <p class="info-desc">Submit your MRI scan for AI-powered tumor segmentation and classification using our ensemble deep learning pipeline.</p>
+
+        <div class="steps">
+            <div class="step">
+                <div class="step-num">01</div>
+                <div class="step-info">
+                    <div class="s-title">Upload Scan</div>
+                    <div class="s-desc">Select your MRI image file</div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-num">02</div>
+                <div class="step-info">
+                    <div class="s-title">AI Segmentation</div>
+                    <div class="s-desc">ResNet ensemble processes image</div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-num">03</div>
+                <div class="step-info">
+                    <div class="s-title">Diagnosis Report</div>
+                    <div class="s-desc">Tumor type &amp; confidence score</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload card -->
+    <div class="upload-card">
+        <div class="card-sweep"></div>
+
+        <div class="card-header">
+            <div class="card-title">MRI Image Upload</div>
+            <div class="card-sub">// SEGMENTATION · CLASSIFICATION · ANALYSIS</div>
+        </div>
+
+        <form action="output" method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+
+            <div class="drop-zone" id="dropZone">
+                <input type="file" name="file" required id="fileInput" accept="image/*,.dcm"
+                       onchange="handleFile(this)">
+                <div class="scan-graphic">
+                    <div class="sg-ring sg-ring-1"></div>
+                    <div class="sg-ring sg-ring-2"></div>
+                    <div class="sg-ring sg-ring-3"></div>
+                    <div class="scan-icon">🧠</div>
+                </div>
+                <div class="drop-title" id="dropTitle">DROP MRI SCAN HERE</div>
+                <div class="drop-sub">or <span>click to browse</span> · PNG, JPG, DICOM</div>
+            </div>
+
+            <div class="filename-display" id="fileDisplay">
+                <div class="filename-icon">📄</div>
+                <div class="filename-text" id="fileName">—</div>
+                <div class="filename-ok">✓</div>
+            </div>
+
+            <div class="selector-wrap">
+                <span class="sel-label">Analysis Model</span>
+                <div class="select-inner">
+                    <select name="algo">
+                        <option value="model">ResNet Ensemble — Deep Segmentation</option>
+                    </select>
+                    <div class="select-arrow">▾</div>
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                <div class="btn-inner">
+                    <span class="btn-icon">⬡</span>
+                    <span>Run Segmentation Analysis</span>
+                </div>
+            </button>
+        </form>
+
+        <div class="bottom-status">
+            <div><span class="status-dot"></span>PIPELINE READY</div>
+            <div>MODEL v4.2 · 98.7% ACC</div>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'layout/scripts/jquery.min.js' %}"></script>
+<script>
+const cursor = document.getElementById('cursor');
+const ring = document.getElementById('cursorRing');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove', e => { mx=e.clientX; my=e.clientY; });
+(function animCursor(){ cursor.style.left=mx+'px'; cursor.style.top=my+'px'; rx+=(mx-rx)*0.12; ry+=(my-ry)*0.12; ring.style.left=rx+'px'; ring.style.top=ry+'px'; requestAnimationFrame(animCursor); })();
+
+function tick(){ const n=new Date(); document.getElementById('clock').textContent=n.toLocaleTimeString('en-GB',{hour12:false}); }
+tick(); setInterval(tick,1000);
+
+function handleFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileDisplay').classList.add('show');
+    document.getElementById('dropTitle').textContent = 'SCAN LOADED';
+    document.getElementById('dropZone').classList.add('active');
+}
+
+const canvas = document.getElementById('neural-canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+window.addEventListener('resize', () => { canvas.width=window.innerWidth; canvas.height=window.innerHeight; });
+const nodes = Array.from({length:55},()=>({x:Math.random()*canvas.width,y:Math.random()*canvas.height,vx:(Math.random()-.5)*.3,vy:(Math.random()-.5)*.3,r:Math.random()*2+1}));
+(function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    nodes.forEach(n=>{ n.x+=n.vx; n.y+=n.vy; if(n.x<0||n.x>canvas.width)n.vx*=-1; if(n.y<0||n.y>canvas.height)n.vy*=-1; });
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+        const dx=nodes[i].x-nodes[j].x, dy=nodes[i].y-nodes[j].y, d=Math.sqrt(dx*dx+dy*dy);
+        if(d<130){ ctx.beginPath(); ctx.strokeStyle=`rgba(10,240,255,${(1-d/130)*.1})`; ctx.lineWidth=.5; ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[j].x,nodes[j].y); ctx.stroke(); }
+    }
+    nodes.forEach(n=>{ ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fillStyle='rgba(10,240,255,0.2)'; ctx.fill(); });
+    requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

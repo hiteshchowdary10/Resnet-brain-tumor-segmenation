@@ -1,0 +1,691 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>NeuroScan AI — Secure Access</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link href="{% static 'layout/styles/layout.css' %}" rel="stylesheet" type="text/css" media="all">
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@200;300;400;600;700&family=Michroma&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --azure: #0af0ff;
+            --azure-dim: #05b8c8;
+            --azure-glow: rgba(10, 240, 255, 0.15);
+            --crimson: #ff3366;
+            --gold: #f0c060;
+            --deep: #020810;
+            --navy: #030f1e;
+            --glass: rgba(5, 20, 40, 0.7);
+            --border-subtle: rgba(10, 240, 255, 0.12);
+            --border-mid: rgba(10, 240, 255, 0.25);
+            --text-dim: rgba(180, 220, 255, 0.4);
+        }
+
+        html, body {
+            height: 100%; width: 100%;
+            overflow: hidden;
+            background: var(--deep);
+            font-family: 'Exo 2', sans-serif;
+            cursor: none;
+        }
+
+        /* Custom cursor */
+        .cursor {
+            position: fixed;
+            width: 8px; height: 8px;
+            background: var(--azure);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9999;
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s;
+            box-shadow: 0 0 12px var(--azure), 0 0 24px var(--azure-dim);
+        }
+        .cursor-ring {
+            position: fixed;
+            width: 32px; height: 32px;
+            border: 1px solid rgba(10,240,255,0.5);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 9998;
+            transform: translate(-50%, -50%);
+            transition: transform 0.15s ease, width 0.2s, height 0.2s;
+        }
+
+        /* === CANVAS === */
+        #neural-canvas {
+            position: fixed; inset: 0;
+            z-index: 0;
+            opacity: 0.6;
+        }
+
+        /* === BACKGROUND === */
+        .bg {
+            position: fixed; inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 20% 50%, rgba(0,30,60,0.9) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 80% at 80% 30%, rgba(0,10,30,0.8) 0%, transparent 60%),
+                url("{% static 'images/01.jpg' %}") center/cover no-repeat;
+            z-index: 0;
+        }
+        .bg::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: rgba(2, 8, 16, 0.75);
+        }
+
+        /* Scanlines */
+        .scanlines {
+            position: fixed; inset: 0; z-index: 1; pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent 0px, transparent 3px,
+                rgba(10,240,255,0.008) 3px, rgba(10,240,255,0.008) 4px
+            );
+        }
+
+        /* ECG line at bottom */
+        .ecg-wrap {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 60px;
+            z-index: 2;
+            overflow: hidden;
+            opacity: 0.35;
+        }
+        .ecg-svg { width: 200%; height: 100%; animation: ecgScroll 4s linear infinite; }
+        @keyframes ecgScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+        /* Corner HUD elements */
+        .hud-corner {
+            position: fixed;
+            z-index: 10;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            line-height: 1.8;
+        }
+        .hud-tl { top: 24px; left: 28px; }
+        .hud-tr { top: 24px; right: 28px; text-align: right; }
+        .hud-bl { bottom: 70px; left: 28px; }
+        .hud-br { bottom: 70px; right: 28px; text-align: right; }
+
+        .hud-corner .accent { color: var(--azure); }
+
+        /* Bracket corners */
+        .bracket {
+            position: fixed; z-index: 10;
+            width: 28px; height: 28px;
+            border-color: rgba(10,240,255,0.35);
+            border-style: solid;
+        }
+        .b-tl { top: 16px; left: 16px; border-width: 1px 0 0 1px; }
+        .b-tr { top: 16px; right: 16px; border-width: 1px 1px 0 0; }
+        .b-bl { bottom: 60px; left: 16px; border-width: 0 0 1px 1px; }
+        .b-br { bottom: 60px; right: 16px; border-width: 0 1px 1px 0; }
+
+        /* === MAIN LAYOUT === */
+        .page {
+            position: fixed; inset: 0; z-index: 5;
+            display: grid;
+            grid-template-columns: 1fr 420px 1fr;
+            grid-template-rows: 1fr;
+            align-items: center;
+        }
+
+        /* Left panel — title */
+        .left-panel {
+            padding: 0 20px 0 60px;
+            animation: slideRight 1s cubic-bezier(0.16,1,0.3,1) both;
+        }
+        @keyframes slideRight {
+            from { opacity: 0; transform: translateX(-40px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .system-label {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 4px;
+            color: var(--azure);
+            margin-bottom: 20px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .system-label::before {
+            content: '';
+            display: inline-block;
+            width: 24px; height: 1px;
+            background: var(--azure);
+        }
+
+        .main-title {
+            font-family: 'Michroma', sans-serif;
+            font-size: 36px;
+            line-height: 1.15;
+            color: #fff;
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+        }
+        .main-title em {
+            display: block;
+            font-style: normal;
+            background: linear-gradient(90deg, var(--azure), #60c8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            font-size: 13px;
+            color: var(--text-dim);
+            line-height: 1.8;
+            max-width: 340px;
+            margin-bottom: 36px;
+            letter-spacing: 0.5px;
+        }
+
+        .stats-row {
+            display: flex; gap: 28px;
+        }
+        .stat {
+            border-left: 1px solid var(--border-mid);
+            padding-left: 14px;
+        }
+        .stat-num {
+            font-family: 'Michroma', sans-serif;
+            font-size: 22px;
+            color: #fff;
+            line-height: 1;
+        }
+        .stat-num span { color: var(--azure); }
+        .stat-label {
+            font-size: 10px;
+            color: var(--text-dim);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        /* === LOGIN CARD === */
+        .login-card {
+            background: var(--glass);
+            border: 1px solid var(--border-subtle);
+            border-radius: 4px;
+            padding: 44px 40px;
+            position: relative;
+            backdrop-filter: blur(24px) saturate(180%);
+            box-shadow:
+                0 0 0 1px rgba(10,240,255,0.05),
+                0 40px 80px rgba(0,0,0,0.6),
+                0 0 100px rgba(10,240,255,0.04),
+                inset 0 1px 0 rgba(10,240,255,0.12);
+            animation: cardIn 1s cubic-bezier(0.16,1,0.3,1) 0.2s both;
+        }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(30px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Glowing top bar */
+        .login-card::before {
+            content: '';
+            position: absolute; top: 0; left: 15%; right: 15%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--azure), transparent);
+            box-shadow: 0 0 20px var(--azure);
+        }
+
+        /* Scan sweep animation */
+        .card-sweep {
+            position: absolute; inset: 0; border-radius: 4px; overflow: hidden; pointer-events: none;
+        }
+        .card-sweep::after {
+            content: '';
+            position: absolute; top: -2px; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(10,240,255,0.5), transparent);
+            animation: sweep 2.5s ease 0.8s both;
+        }
+        @keyframes sweep {
+            from { top: -2px; opacity: 1; }
+            to { top: 100%; opacity: 0; }
+        }
+
+        .card-logo {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 32px;
+        }
+        .logo-ring {
+            width: 42px; height: 42px;
+            border: 1px solid var(--border-mid);
+            border-radius: 50%;
+            position: relative;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .logo-ring::before {
+            content: '';
+            position: absolute; inset: 4px;
+            border: 1px solid rgba(10,240,255,0.3);
+            border-radius: 50%;
+        }
+        .logo-ring::after {
+            content: '';
+            position: absolute;
+            width: 10px; height: 10px;
+            background: var(--azure);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--azure);
+            animation: logoPulse 2s ease-in-out infinite;
+        }
+        @keyframes logoPulse {
+            0%,100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.7; }
+        }
+
+        .logo-text { line-height: 1.2; }
+        .logo-text .name {
+            font-family: 'Michroma', sans-serif;
+            font-size: 16px; color: #fff; letter-spacing: 1px;
+        }
+        .logo-text .sub {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px; color: var(--text-dim); letter-spacing: 3px;
+        }
+
+        .card-heading {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 3px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        /* Input fields */
+        .field { margin-bottom: 18px; }
+
+        .field-label {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: var(--azure);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .field-label::after {
+            content: '';
+            flex: 1; height: 1px;
+            background: var(--border-subtle);
+        }
+
+        .field-inner { position: relative; }
+
+        .field-inner input {
+            width: 100%;
+            padding: 13px 16px 13px 42px;
+            background: rgba(10,240,255,0.03);
+            border: 1px solid var(--border-subtle);
+            border-radius: 3px;
+            font-family: 'Exo 2', sans-serif;
+            font-size: 14px;
+            color: rgba(255,255,255,0.9);
+            letter-spacing: 0.5px;
+            transition: all 0.25s;
+        }
+        .field-inner input::placeholder { color: rgba(255,255,255,0.15); }
+        .field-inner input:focus {
+            outline: none;
+            border-color: rgba(10,240,255,0.4);
+            background: rgba(10,240,255,0.05);
+            box-shadow: 0 0 0 3px rgba(10,240,255,0.05), 0 0 20px rgba(10,240,255,0.08);
+        }
+
+        .field-icon {
+            position: absolute; left: 14px; top: 50%;
+            transform: translateY(-50%);
+            color: rgba(10,240,255,0.35);
+            font-size: 14px;
+            pointer-events: none;
+            transition: color 0.25s;
+        }
+        .field-inner:focus-within .field-icon { color: var(--azure); }
+
+        /* Submit button */
+        .submit-btn {
+            width: 100%;
+            margin-top: 28px;
+            padding: 15px;
+            background: transparent;
+            border: 1px solid rgba(10,240,255,0.35);
+            border-radius: 3px;
+            font-family: 'Michroma', sans-serif;
+            font-size: 12px;
+            letter-spacing: 4px;
+            color: var(--azure);
+            cursor: none;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+        .submit-btn::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(10,240,255,0.15), rgba(10,240,255,0.05));
+            transform: scaleX(0); transform-origin: left;
+            transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+        }
+        .submit-btn:hover::before { transform: scaleX(1); }
+        .submit-btn:hover {
+            border-color: var(--azure);
+            box-shadow: 0 0 30px rgba(10,240,255,0.2), inset 0 0 30px rgba(10,240,255,0.05);
+            letter-spacing: 6px;
+        }
+        .btn-text { position: relative; z-index: 1; }
+
+        /* Status */
+        .status {
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px; margin-top: 20px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 9px; letter-spacing: 2px;
+            color: var(--text-dim);
+        }
+        .status-dot {
+            width: 5px; height: 5px; border-radius: 50%;
+            background: #00ff88;
+            box-shadow: 0 0 8px #00ff88;
+            animation: statusBlink 3s ease-in-out infinite;
+        }
+        @keyframes statusBlink {
+            0%,100% { opacity: 1; } 50% { opacity: 0.3; }
+        }
+
+        /* Right panel — decorative MRI rings */
+        .right-panel {
+            display: flex; align-items: center; justify-content: center;
+            animation: slideLeft 1s cubic-bezier(0.16,1,0.3,1) 0.1s both;
+        }
+        @keyframes slideLeft {
+            from { opacity: 0; transform: translateX(40px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .mri-rings {
+            position: relative;
+            width: 240px; height: 240px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .ring {
+            position: absolute;
+            border-radius: 50%;
+            border: 1px solid;
+            animation: ringRotate linear infinite;
+        }
+        .ring-1 {
+            width: 240px; height: 240px;
+            border-color: rgba(10,240,255,0.08);
+            animation-duration: 20s;
+        }
+        .ring-2 {
+            width: 190px; height: 190px;
+            border-color: rgba(10,240,255,0.12);
+            animation-duration: 15s;
+            animation-direction: reverse;
+        }
+        .ring-3 {
+            width: 140px; height: 140px;
+            border-color: rgba(10,240,255,0.18);
+            animation-duration: 10s;
+        }
+        .ring-4 {
+            width: 90px; height: 90px;
+            border-color: rgba(10,240,255,0.28);
+            animation-duration: 7s;
+            animation-direction: reverse;
+        }
+        @keyframes ringRotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Tick marks on rings */
+        .ring::before {
+            content: '';
+            position: absolute;
+            width: 6px; height: 6px;
+            background: var(--azure);
+            border-radius: 50%;
+            top: -3px; left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 0 10px var(--azure);
+        }
+
+        .brain-center {
+            width: 50px; height: 50px;
+            background: radial-gradient(circle, rgba(10,240,255,0.2), rgba(10,240,255,0.02));
+            border-radius: 50%;
+            border: 1px solid rgba(10,240,255,0.3);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px;
+            box-shadow: 0 0 30px rgba(10,240,255,0.15);
+            animation: centerPulse 3s ease-in-out infinite;
+            z-index: 2;
+        }
+        @keyframes centerPulse {
+            0%,100% { box-shadow: 0 0 30px rgba(10,240,255,0.15); }
+            50% { box-shadow: 0 0 50px rgba(10,240,255,0.3); }
+        }
+    </style>
+</head>
+<body id="top">
+
+<div class="cursor" id="cursor"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+
+<div class="bg"></div>
+<div class="scanlines"></div>
+<canvas id="neural-canvas"></canvas>
+
+<!-- ECG Line -->
+<div class="ecg-wrap">
+    <svg class="ecg-svg" viewBox="0 0 1200 60" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0,30 L80,30 L100,30 L110,5 L120,55 L130,5 L140,30 L160,30 L240,30 L260,30 L270,5 L280,55 L290,5 L300,30 L320,30 L400,30 L420,30 L430,5 L440,55 L450,5 L460,30 L480,30 L560,30 L580,30 L590,5 L600,55 L610,5 L620,30 L640,30 L720,30 L740,30 L750,5 L760,55 L770,5 L780,30 L800,30 L880,30 L900,30 L910,5 L920,55 L930,5 L940,30 L960,30 L1040,30 L1060,30 L1070,5 L1080,55 L1090,5 L1100,30 L1200,30"
+              stroke="rgba(10,240,255,0.6)" stroke-width="1.5"/>
+    </svg>
+</div>
+
+<!-- HUD corners -->
+<div class="hud-corner hud-tl">
+    <div><span class="accent">SYS</span> · NEUROSCAN AI v4.2</div>
+    <div>STATUS <span class="accent">ONLINE</span></div>
+    <div id="clock">--:--:--</div>
+</div>
+<div class="hud-corner hud-tr">
+    <div>RESOLUTION <span class="accent">2048×1024</span></div>
+    <div>PIPELINE <span class="accent">SECURE</span></div>
+    <div>PROTOCOL <span class="accent">TLS 1.3</span></div>
+</div>
+<div class="hud-corner hud-bl">
+    <div>MODEL <span class="accent">RESNET-ENSEMBLE</span></div>
+    <div>ACC <span class="accent">98.7%</span></div>
+</div>
+<div class="hud-corner hud-br">
+    <div>PATIENTS <span class="accent">12,847</span></div>
+    <div>SCANS PROCESSED <span class="accent">84,219</span></div>
+</div>
+
+<div class="bracket b-tl"></div>
+<div class="bracket b-tr"></div>
+<div class="bracket b-bl"></div>
+<div class="bracket b-br"></div>
+
+<!-- Main page -->
+<div class="page">
+
+    <!-- Left panel -->
+    <div class="left-panel">
+        <div class="system-label">NEUROSCAN AI PLATFORM</div>
+        <h1 class="main-title">
+            MRI Brain<br>
+            Tumor<br>
+            <em>Segmentation</em>
+        </h1>
+        <p class="tagline">
+            Segmentation-Guided Deep Ensembles with Self-Supervised Learning. Precision diagnostics powered by next-generation neural architecture.
+        </p>
+        <div class="stats-row">
+            <div class="stat">
+                <div class="stat-num">95<span>%</span></div>
+                <div class="stat-label">Accuracy</div>
+            </div>
+            <div class="stat">
+                <div class="stat-num">0.3<span>s</span></div>
+                <div class="stat-label">Inference</div>
+            </div>
+            <div class="stat">
+                <div class="stat-num">4<span>+</span></div>
+                <div class="stat-label">Tumor Types</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login card -->
+    <div class="login-card">
+        <div class="card-sweep"></div>
+
+        <div class="card-logo">
+            <div class="logo-ring"></div>
+            <div class="logo-text">
+                <div class="name">NeuroScan</div>
+                <div class="sub">AI · DIAGNOSTIC SYSTEM</div>
+            </div>
+        </div>
+
+        <div class="card-heading">// SECURE AUTHENTICATION REQUIRED</div>
+
+        <form action="input" method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+
+            <div class="field">
+                <div class="field-label">Identity</div>
+                <div class="field-inner">
+                    <span class="field-icon">◈</span>
+                    <input type="text" name="name" placeholder="Enter username" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="field">
+                <div class="field-label">Passkey</div>
+                <div class="field-inner">
+                    <span class="field-icon">⬡</span>
+                    <input type="password" name="password" placeholder="Enter password" autocomplete="off">
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                <span class="btn-text">Authenticate &amp; Enter</span>
+            </button>
+        </form>
+
+        <div class="status">
+            <div class="status-dot"></div>
+            ENCRYPTED CHANNEL · HIPAA COMPLIANT
+        </div>
+    </div>
+
+    <!-- Right panel - MRI rings -->
+    <div class="right-panel">
+        <div class="mri-rings">
+            <div class="ring ring-1"></div>
+            <div class="ring ring-2"></div>
+            <div class="ring ring-3"></div>
+            <div class="ring ring-4"></div>
+            <div class="brain-center">🧠</div>
+        </div>
+    </div>
+
+</div>
+
+<script src="{% static 'layout/scripts/jquery.min.js' %}"></script>
+<script src="{% static 'layout/scripts/jquery.backtotop.js' %}"></script>
+<script src="{% static 'layout/scripts/jquery.mobilemenu.js' %}"></script>
+<script>
+// Custom cursor
+const cursor = document.getElementById('cursor');
+const ring = document.getElementById('cursorRing');
+let mx = 0, my = 0, rx = 0, ry = 0;
+document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+(function animCursor() {
+    cursor.style.left = mx + 'px'; cursor.style.top = my + 'px';
+    rx += (mx - rx) * 0.12; ry += (my - ry) * 0.12;
+    ring.style.left = rx + 'px'; ring.style.top = ry + 'px';
+    requestAnimationFrame(animCursor);
+})();
+
+// Clock
+function tick() {
+    const n = new Date();
+    document.getElementById('clock').textContent =
+        n.toLocaleTimeString('en-GB', {hour12:false});
+}
+tick(); setInterval(tick, 1000);
+
+// Neural particle canvas
+const canvas = document.getElementById('neural-canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
+
+const NODES = 60;
+const nodes = Array.from({length: NODES}, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: (Math.random() - 0.5) * 0.3,
+    r: Math.random() * 2 + 1
+}));
+
+function drawNeural() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Update
+    nodes.forEach(n => {
+        n.x += n.vx; n.y += n.vy;
+        if (n.x < 0 || n.x > canvas.width) n.vx *= -1;
+        if (n.y < 0 || n.y > canvas.height) n.vy *= -1;
+    });
+    // Edges
+    for (let i = 0; i < NODES; i++) {
+        for (let j = i+1; j < NODES; j++) {
+            const dx = nodes[i].x - nodes[j].x;
+            const dy = nodes[i].y - nodes[j].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 140) {
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(10,240,255,${(1 - dist/140) * 0.12})`;
+                ctx.lineWidth = 0.5;
+                ctx.moveTo(nodes[i].x, nodes[i].y);
+                ctx.lineTo(nodes[j].x, nodes[j].y);
+                ctx.stroke();
+            }
+        }
+    }
+    // Nodes
+    nodes.forEach(n => {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(10,240,255,0.25)';
+        ctx.fill();
+    });
+    requestAnimationFrame(drawNeural);
+}
+drawNeural();
+</script>
+</body>
+</html>
